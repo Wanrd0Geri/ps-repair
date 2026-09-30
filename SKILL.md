@@ -23,7 +23,7 @@ description: 在本机 Photoshop 里修 AI 生成图的瑕疵，全程只加图�
 
 ## 流程
 
-**0 连接与文档检查。** 有 Higgsfield MCP：`ps_status`，再用 `ps_do` 跑 `document.list`、`layer.list`，记下文档 ID、尺寸、图层；没有就 `python3 scripts/psrun.py inspect`，看图导出用 `export_png` 配方。确认用户没在操作 PS、没有弹窗，问清产出落点。配方只在 8 位 RGB 文档上测过（sRGB 的，和没嵌配置文件、`inspect` 里 profile 为 null 的）；16 位、CMYK、Lab 或别的配置文件先在副本上试。
+**0 连接与文档检查。** 有 Higgsfield MCP：`ps_status`，再用 `ps_do` 跑 `document.list`、`layer.list`，记下文档 ID、尺寸、图层；没有就 `python3 -X utf8 $HOME/Documents/Codex/ps-repair/scripts/psrun.py inspect`，看图导出用 `export_png` 配方。确认用户没在操作 PS、没有弹窗，问清产出落点。配方只在 8 位 RGB 文档上测过（sRGB 的，和没嵌配置文件、`inspect` 里 profile 为 null 的）；16 位、CMYK、Lab 或别的配置文件先在副本上试。
 
 **1 检视与缺陷表。** 按 [inspection-and-verification.md](references/inspection-and-verification.md) 切块、放大、定坐标，再列表：
 
@@ -36,7 +36,9 @@ description: 在本机 Photoshop 里修 AI 生成图的瑕疵，全程只加图�
 
 **3 执行。** MCP 有的操作优先用 MCP（看图、导出、选区、蒙版、图层），没有的走配方：
 
-    python3 scripts/psrun.py <配方> --args '{...}'
+    python3 -X utf8 $HOME/Documents/Codex/ps-repair/scripts/psrun.py <配方> --args '{...}'
+
+在 macOS 上它经 osascript 驱动 Photoshop，要求 PS 已打开；在 Windows 上经 PowerShell COM 驱动，PS 没开会自动启动 2026 正式版（Beta 只在显式 `--app "Adobe Photoshop (Beta)"` 时用）。Windows 的 PowerShell 5.1 会吃掉 `--args` 里的双引号：改成把 JSON 写进 UTF-8 文件，再传 `--args-file <文件>`（PowerShell 7.3+、Git Bash 直接用 `--args` 即可）。路径参数在两个系统上都写本机原生路径。
 
 参数名以 `recipes/CATALOG.md` 为准，不自己编；MCP 操作先用 `ps_catalog` 查参数。每条配方都显式传 `doc_id` 和 `layer_id`（像素类是源图层，一般是背景层；调整类是新层插在哪层上方）：建过调整层后当前图层就是调整层，像素类配方不传 `layer_id` 会报 `SOURCE_NOT_PIXEL_LAYER`。配方自带保护：`mask_from_selection`、`mask_set`、`layer_ops` 只改「修_」图层（否则报 `PROTECTED_LAYER`），`close_doc` 只关「试做_」文档（否则报 `PROTECTED_DOC`）；报了先核对目标，不顺手加 `allow_any_layer`、`force`。先在副本跑代表性一处，过了验收再上正式文档。调用超时不重跑同一条写操作，先查图层和历史记录。
 

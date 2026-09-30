@@ -40,7 +40,7 @@
 
 ## compare.py
 
-五个子命令，参数以 `python3 scripts/compare.py <子命令> --help` 为准：
+五个子命令，参数以 `python3 -X utf8 $HOME/Documents/Codex/ps-repair/scripts/compare.py <子命令> --help` 为准：
 
 - `tiles`：全图切块（默认 `--grid 3x2` 六块），逐块检视用。
 - `zoom`：裁出一块按倍数放大（最近邻），看可疑处和接缝用；加 `--grid N` 每 N 个原图像素画线并标原图坐标，定坐标用。

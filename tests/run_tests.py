@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""run_tests.py —— 在 Photoshop 里新建 800×600 合成文档，依次跑配方并断言，最后关闭不保存。
+"""run_tests.py —— macOS（osascript）与 Windows（COM）通用：在 Photoshop 里新建 800×600 合成文档，依次跑配方并断言，最后关闭不保存。
 
 断言：结果 ok、产出图层（“修_”前缀）、蒙版存在、修改区外像素不变（导出前后 PSNR=inf）、修改区内确有变化。
 不跑 generative_fill（扣积分），只对它做语法检查。
-用法：python3 tests/run_tests.py [--keep] [--skip-tier2] [--skip-timeout]
+用法：python3 -X utf8 tests/run_tests.py [--keep] [--skip-tier2] [--skip-timeout]
 退出码：有 FAIL 时为 1。
 """
 import argparse
@@ -16,8 +16,10 @@ import sys
 import tempfile
 import time
 import traceback
+from pathlib import Path
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = str(Path(__file__).resolve().parent.parent)
+IS_WIN = sys.platform == "win32"
 PSRUN = os.path.join(ROOT, "scripts", "psrun.py")
 sys.path.insert(0, os.path.join(ROOT, "scripts"))
 import compare  # noqa: E402
@@ -29,7 +31,7 @@ PREFIX = "修_"
 def ps(recipe=None, args=None, jsx=None, timeout=300, extra=None):
     cmd = [sys.executable, PSRUN] + ([recipe] if recipe else ["--jsx", jsx])
     cmd += ["--args", json.dumps(args or {}, ensure_ascii=False), "--timeout", str(timeout)] + (extra or [])
-    p = subprocess.run(cmd, capture_output=True, text=True)
+    p = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
     try:
         res = json.loads(p.stdout.strip().splitlines()[-1])
     except (ValueError, IndexError):
@@ -234,7 +236,8 @@ class Suite:
     def t_usage(self):
         r = ps("no_such_recipe", {})
         check(not r["ok"] and r["_rc"] == 2 and "USAGE" in r["error"], "未知配方应返回 USAGE 且退出码 2")
-        p = subprocess.run([sys.executable, PSRUN, "inspect", "--args", "{bad"], capture_output=True, text=True)
+        p = subprocess.run([sys.executable, PSRUN, "inspect", "--args", "{bad"], capture_output=True, text=True,
+                           encoding="utf-8", errors="replace")
         check(p.returncode == 2 and json.loads(p.stdout)["ok"] is False, "坏 JSON 应返回退出码 2")
         return "未知配方/坏参数 → ok=false，退出码 2"
 
@@ -430,7 +433,7 @@ class Suite:
         t0 = time.time()
         r = ps(jsx=src, timeout=60, extra=["--ae-timeout", "10"])
         check(r["ok"] and r["data"].get("slept"), "超时轮询没拿到结果：%s" % r.get("error"))
-        return "AppleEvent 10 s 超时后轮询到结果（共 %.1f s）" % (time.time() - t0)
+        return "%s 10 s 超时后轮询到结果（共 %.1f s）" % ("COM 调用" if IS_WIN else "AppleEvent", time.time() - t0)
 
     # ---------- 汇总 ----------
     def report(self):

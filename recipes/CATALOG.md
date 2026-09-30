@@ -5,16 +5,16 @@
 ## 怎么调用
 
 ```
-python3 scripts/psrun.py <配方名> --args '<json>' [--timeout 900] [--app "Adobe Photoshop 2026"]
-python3 scripts/psrun.py --jsx <文件.jsx> [--args '<json>']    # 任意脚本；有 run(args) 就按配方跑，没有就整段 eval
-python3 scripts/psrun.py --list                               # 列出配方（不碰 PS）
-python3 scripts/psrun.py <配方名> --check                     # 只做语法检查（node），不碰 PS
-python3 scripts/psrun.py --poll <结果文件> --timeout 600       # 继续等一次超时运行的结果
+python3 -X utf8 $HOME/Documents/Codex/ps-repair/scripts/psrun.py <配方名> --args '<json>' [--timeout 900] [--app "Adobe Photoshop 2026"]
+python3 -X utf8 $HOME/Documents/Codex/ps-repair/scripts/psrun.py --jsx <文件.jsx> [--args '<json>']    # 任意脚本；有 run(args) 就按配方跑，没有就整段 eval
+python3 -X utf8 $HOME/Documents/Codex/ps-repair/scripts/psrun.py --list                               # 列出配方（不碰 PS）
+python3 -X utf8 $HOME/Documents/Codex/ps-repair/scripts/psrun.py <配方名> --check                     # 只做语法检查（node），不碰 PS
+python3 -X utf8 $HOME/Documents/Codex/ps-repair/scripts/psrun.py --poll <结果文件> --timeout 600       # 继续等一次超时运行的结果
 ```
 
 - stdout 只有一个 JSON：`{"ok":bool,"recipe":str,"data":{...},"error":str|null,"elapsed_ms":int,"history":[最近3条历史记录名]}`。退出码：0 成功；1 配方失败；2 用法/环境错误（未知配方、坏 JSON、PS 没开）。
 - 错误文本形如 `错误: CODE: 说明 @line N (文件:行)`（“错误:”是 PS 本地化前缀），按 `CODE` 子串判断。失败时 error 末尾附拼好的脚本路径，便于排查。
-- 超时：AppleEvent 默认等 120 s（`--ae-timeout`），超时报 -1712 时脚本仍在 PS 里跑，runner 转为轮询结果文件直到 `--timeout`（默认 900 s）。仍拿不到结果时返回 `TIMEOUT`，**结果未知，不要盲目重试有副作用的配方**，先 `inspect`。
+- 超时：AppleEvent（Windows 上是 COM 调用）默认等 120 s（`--ae-timeout`），超时报 -1712 时脚本仍在 PS 里跑，runner 转为轮询结果文件直到 `--timeout`（默认 900 s）。仍拿不到结果时返回 `TIMEOUT`，**结果未知，不要盲目重试有副作用的配方**，先 `inspect`。
 - 同一时刻只让一个工具驱动 PS。psrun 之间用文件锁排队；发现 Higgsfield MCP 锁（`~/.higgsfield-adobe/photoshop.lock`，目录）时在 stderr 警告，不会删它。
 - history 是 PS 本地化名称（中文），只用于人看，不要拿来匹配。
 
