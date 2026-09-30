@@ -23,12 +23,29 @@ import subprocess
 import sys
 import tempfile
 
-FFMPEG = shutil.which("ffmpeg") or "/opt/homebrew/bin/ffmpeg"
-FFPROBE = shutil.which("ffprobe") or "/opt/homebrew/bin/ffprobe"
+def find_tool(name):
+    """按顺序找：PATH（Windows 上 which 会补 .exe）→ 环境变量 FFMPEG_DIR → macOS 常见位置。找不到返回裸名，运行时报错。"""
+    hit = shutil.which(name)
+    if hit:
+        return hit
+    dirs = [os.environ.get("FFMPEG_DIR", ""), "/opt/homebrew/bin", "/usr/local/bin"]
+    for d in dirs:
+        if not d:
+            continue
+        for fn in (name + ".exe", name):
+            cand = os.path.join(d, fn)
+            if os.path.isfile(cand):
+                return cand
+    return name
+
+
+FFMPEG = find_tool("ffmpeg")
+FFPROBE = find_tool("ffprobe")
 
 
 def run_ff(args, check=True):
-    p = subprocess.run([FFMPEG, "-hide_banner", "-nostats", "-y"] + args, capture_output=True, text=True)
+    p = subprocess.run([FFMPEG, "-hide_banner", "-nostats", "-y"] + args, capture_output=True, text=True,
+                       encoding="utf-8", errors="replace")
     if check and p.returncode != 0:
         raise RuntimeError("ffmpeg 失败：%s" % p.stderr.strip()[-600:])
     return p.stderr
@@ -37,7 +54,7 @@ def run_ff(args, check=True):
 def size_of(path):
     out = subprocess.run([FFPROBE, "-v", "error", "-select_streams", "v:0", "-show_entries",
                           "stream=width,height", "-of", "csv=p=0:s=x", path],
-                         capture_output=True, text=True, check=True).stdout.strip()
+                         capture_output=True, text=True, encoding="utf-8", errors="replace", check=True).stdout.strip()
     w, h = out.split("x")[:2]
     return int(w), int(h)
 
@@ -221,6 +238,12 @@ def main():
         print(json.dumps(dict(ok=True, **res), ensure_ascii=False))
     except (ValueError, RuntimeError, subprocess.CalledProcessError) as e:
         print(json.dumps({"ok": False, "error": str(e)}, ensure_ascii=False))
+        sys.exit(1)
+    except OSError as e:  # 含 FileNotFoundError：没装 ffmpeg/ffprobe，或输出目录写不进
+        msg = str(e)
+        if getattr(e, "filename", None) in (FFMPEG, FFPROBE):
+            msg = "找不到或无法运行 %s：装好后加进 PATH，或设环境变量 FFMPEG_DIR 指向其所在目录" % e.filename
+        print(json.dumps({"ok": False, "error": msg}, ensure_ascii=False))
         sys.exit(1)
 
 

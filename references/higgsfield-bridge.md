@@ -1,6 +1,6 @@
 # Higgsfield PS MCP 桥接
 
-`higgsfield-use-photoshop`：npm `@higgsfield_org/photoshop-mcp` 0.1.2，装在 `~/.higgsfield/photoshop-mcp/`，经 macOS 自动化脚本驱动 PS。Codex 端没有它时，整套走 `scripts/psrun.py`。
+`higgsfield-use-photoshop`：npm `@higgsfield_org/photoshop-mcp` 0.1.2，装在 `~/.higgsfield/photoshop-mcp/`，经 macOS 自动化脚本驱动 PS。Codex 端没有它时，整套走 `scripts/psrun.py`。Windows 上不用装它：`psrun.py` 直接经 PowerShell 的 COM 自动化驱动 PS，整套走 psrun。
 
 ## 工具
 

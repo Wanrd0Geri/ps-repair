@@ -268,7 +268,7 @@ def syntax_check(script):
         f.write(script)
         path = f.name
     try:
-        p = subprocess.run([node, "--check", path], capture_output=True, text=True)
+        p = subprocess.run([node, "--check", path], capture_output=True, text=True, encoding="utf-8", errors="replace")
         return p.returncode == 0, p.stderr.strip()
     finally:
         os.unlink(path)
