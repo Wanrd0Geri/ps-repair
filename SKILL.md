@@ -1,6 +1,6 @@
 ---
 name: ps-repair
-description: 在本机 Photoshop 里修 AI 生成图的瑕疵，全程只加图层、不动原图层。用于：去杂物、去无意义物件、材质融化与结构错乱、远景景深或雾不对、色偏与明暗、假纹理与颗粒、接缝；把即梦局部重绘的结果合回图层；给 PS 里打开的图做可编辑的修复与调色；内容识别填充、生成式填充。不用于：写视频或图片提示词（归 aigc-video、midjourney-prompt）、角色设计（character-design-pipeline）、分镜与导演方案（director-master）、纯术语解释。
+description: 在本机 Photoshop 里修 AI 生成图的瑕疵，全程只加图层、不动原图层。用于：去杂物、去无意义物件、材质融化与结构错乱、远景景深或雾不对、色偏与明暗、假纹理与颗粒、接缝；把即梦局部重绘的结果合回图层；给 PS 里打开的图做可编辑的修复与调色；内容识别填充、生成式填充。不用于：写视频或图片提示词（归 aigc-video、cinema-dna-21x9x3）、角色设计（character-design-pipeline）、分镜与导演方案（director-master）、纯术语解释。
 ---
 
 # ps-repair：在 Photoshop 里修 AI 生成图
