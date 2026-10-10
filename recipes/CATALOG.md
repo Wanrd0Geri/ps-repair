@@ -1,22 +1,26 @@
 # 配方目录（CATALOG）
 
-本文件是配方参数的唯一来源，和 `recipes/*.jsx` 文件头保持一致。验证环境：Photoshop 2026（27.10.0，中文界面，macOS Apple Silicon），2026-09-25，`tests/run_tests.py` 在 800×600 合成文档上全部通过。
+本文件是配方参数的唯一来源，和 `recipes/*.jsx` 文件头保持一致（`allow_duplicate` 由 `_lib.jsx` 统一处理，文件头不逐个列，见「通用约定」）。验证环境：Photoshop 2026（27.10.0，中文界面，macOS Apple Silicon），2026-09-25，`tests/run_tests.py` 在 800×600 合成文档上全部通过；2026-10-10 Windows 11 + Photoshop 2026 27.11.0 全部 43 项通过（含新加的探活、防重跑、一步撤销、ES3 拦截、错误码解析；macOS 这一版没有复测）。
 
 ## 怎么调用
 
 ```
 python3 -X utf8 $HOME/Documents/Codex/ps-repair/scripts/psrun.py <配方名> --args '<json>' [--timeout 900] [--app "Adobe Photoshop 2026"]
 python3 -X utf8 $HOME/Documents/Codex/ps-repair/scripts/psrun.py --jsx <文件.jsx> [--args '<json>']    # 任意脚本；有 run(args) 就按配方跑，没有就整段 eval
+python3 -X utf8 $HOME/Documents/Codex/ps-repair/scripts/psrun.py --ping                               # 探活（只读，不启动 PS）：等 15 s、总共约 30 s（含排队等锁）
 python3 -X utf8 $HOME/Documents/Codex/ps-repair/scripts/psrun.py --list                               # 列出配方（不碰 PS）
-python3 -X utf8 $HOME/Documents/Codex/ps-repair/scripts/psrun.py <配方名> --check                     # 只做语法检查（node），不碰 PS
+python3 -X utf8 $HOME/Documents/Codex/ps-repair/scripts/psrun.py <配方名> --check                     # 语法检查（node）+ ES3 写法扫描，不碰 PS
 python3 -X utf8 $HOME/Documents/Codex/ps-repair/scripts/psrun.py --poll <结果文件> --timeout 600       # 继续等一次超时运行的结果
 ```
 
-- stdout 只有一个 JSON：`{"ok":bool,"recipe":str,"data":{...},"error":str|null,"elapsed_ms":int,"history":[最近3条历史记录名]}`。退出码：0 成功；1 配方失败；2 用法/环境错误（未知配方、坏 JSON、PS 没开）。
-- 错误文本形如 `错误: CODE: 说明 @line N (文件:行)`（“错误:”是 PS 本地化前缀），按 `CODE` 子串判断。失败时 error 末尾附拼好的脚本路径，便于排查。
-- 超时：AppleEvent（Windows 上是 COM 调用）默认等 120 s（`--ae-timeout`），超时报 -1712 时脚本仍在 PS 里跑，runner 转为轮询结果文件直到 `--timeout`（默认 900 s）。仍拿不到结果时返回 `TIMEOUT`，**结果未知，不要盲目重试有副作用的配方**，先 `inspect`。
-- 同一时刻只让一个工具驱动 PS。psrun 之间用文件锁排队；发现 Higgsfield MCP 锁（`~/.higgsfield-adobe/photoshop.lock`，目录）时在 stderr 警告，不会删它。
-- history 是 PS 本地化名称（中文），只用于人看，不要拿来匹配。
+- stdout 只有一个 JSON：`{"ok":bool,"recipe":str,"data":{...},"error":str|null,"error_code":str|null,"error_number":int|null,"elapsed_ms":int,"history":[最近3条历史记录名],"warnings":[...]}`。退出码：0 成功；1 配方失败；2 用法/环境错误（未知配方、坏 JSON、PS 没开）。
+- 错误文本形如 `错误: CODE: 说明 @line N (文件:行)`（“错误:”是 PS 本地化前缀）。**按 `error_code` 判断**（就是这个 CODE；`COM_ERROR: COM_MISMATCH: …` 这类外壳取里面的 `COM_MISMATCH`），不按文字。`error_number` 是 PS 原生错误号（本工具 `fail()` 的报错不带），界面语言变了它也不变。失败时 error 末尾附拼好的脚本路径，便于排查。
+- warnings 里每条以代码开头：`MCP_LOCK` / `MCP_LOCK_STALE`（Higgsfield MCP 锁）、`SCRATCH_DISK_LOW`（系统盘剩余不到 20 GB）、`ES3`（脚本里有 ExtendScript 不支持的写法，真跑时只警告）、`ONE_UNDO_SKIPPED` / `ONE_UNDO_ERROR`（这次没能合成一步历史记录）。
+- 超时：AppleEvent（Windows 上是 COM 调用）默认等 120 s（`--ae-timeout`），超时报 -1712 时脚本仍在 PS 里跑，runner 转为轮询结果文件直到 `--timeout`（默认 900 s）。仍拿不到结果时返回 `TIMEOUT`，**结果未知，不要盲目重试有副作用的配方**：先 `--ping`，通了再 `inspect`。系统盘剩余不到 20 GB 时，TIMEOUT 的说明里会附暂存盘满的处理办法。
+- 暂存盘：PS 默认把暂存盘放在系统盘，满了会弹窗卡住，脚本只表现为超时（PS 错误号 -25010）。psrun 每次运行前看系统盘剩余，不到 20 GB 发 `SCRATCH_DISK_LOW`；报错号 -25010 或错误文字提到暂存盘时，`error_code` 改成 `SCRATCH_DISK_FULL` 并附 Adobe 的处理办法。依据：Adobe 官方页面（系统盘至少留 20 GB，排障时腾出 100 GB）；-25010 的对应关系来自 alisaitteke/photoshop-mcp，本机没遇到过。用户把暂存盘改到别的盘时，这项检查看不出来。
+- Windows 连接：不按注册表 `Photoshop.Application` 新建对象（它指向最后安装的版本，常是 Beta，会把 Beta 拉起来，K8），只在运行对象表里找正在运行、安装目录对得上的目标 PS。PS 没开时先直接启动目标 exe，再等它登记（`--ping` 不启动，直接报 `PS_NOT_RUNNING`）。默认只选正式版，哪怕只有 Beta 在跑；用 Beta 要显式 `--app "Adobe Photoshop (Beta)"`。PS 忙（COM 报 CALL_REJECTED / RETRYLATER）时在等待时限内自动重试。
+- 同一时刻只让一个工具驱动 PS。psrun 之间用文件锁排队；发现 Higgsfield MCP 锁（`~/.higgsfield-adobe/photoshop.lock`，目录）时警告，不会删它。
+- history 是 PS 本地化名称（中文），只用于人看，不要拿来匹配；本工具一步撤销的历史记录名是 `修_<配方>_<label>`（如「修_adj_curves_远山」）。
 
 ## 通用约定
 
@@ -29,10 +33,12 @@ python3 -X utf8 $HOME/Documents/Codex/ps-repair/scripts/psrun.py --poll <结果�
 - 调整/填充类：调整层或填充层 + 选区蒙版，插在 `layer_id`（缺省当前图层）上方。
 - 所有建层配方：无选区时建“全显”蒙版；`feather_px` 用蒙版属性羽化（可逆）；结束后**取消选区**，新图层成为当前图层。
 - 保护：`mask_from_selection`、`mask_set`、`layer_ops`（select/info 除外）只改名字以“修_”开头的图层，否则报 `PROTECTED_LAYER`（确需时传 `allow_any_layer:true`）；`close_doc` 只关名字以“试做_”开头的文档，否则报 `PROTECTED_DOC`（确需时 `force:true`），永远不保存；导出/另存只写新路径，已存在报 `OUTPUT_EXISTS`。
+- 防重跑叠层：产出「修_<配方>_<label>」的配方（像素组、调整组、`place_image`、`generative_fill`）运行前先查同名图层，已存在报 `LAYER_EXISTS`，在改选区、建图层、调云端之前就拦下（`generative_fill` 的 `dry_run` 也查）。超时后重跑、忘了换 label 都会撞上：先 `inspect` 核对上一次是不是已经生效；另修一处就换 label；确要再叠一层同名的传 `allow_duplicate:true`。
+- 一步撤销：上面这些建层配方（`generative_fill` 除外）和 `mask_from_selection`、`mask_set`、`layer_ops`、`select_modify` 整条包进 `suspendHistory`，在 PS 历史记录里只占一步，名字是 `修_<配方>_<label>`（建层配方就是产出图层名；`mask_set`、`layer_ops` 这类是配方名加它收到的 label），用户按一次 Ctrl+Z 撤掉整处修复。建/关文档、导出、`inspect`、`ping`、`--jsx` 和 `generative_fill`（云端长操作放进去没实测）不包。`suspendHistory` 不可用时照常跑，历史记录会是多步，warnings 里有 `ONE_UNDO_SKIPPED` 或 `ONE_UNDO_ERROR`：看到就别跟用户说"按一次撤销"。
 
 **参数组缩写**（表里引用）：
-- 〔像素组〕`selection`（默认=沿用当前选区，无选区=整层）、`layer_id`（源图层，缺省=当前图层，必须是普通像素层，否则 `SOURCE_NOT_PIXEL_LAYER`——建过调整层后当前图层就是调整层，所以请显式传背景层等像素层的 id）、`source`="layer"（"merged"=先盖印全部可见图层再做）、`expand_px`=0、`feather_px`=0、`label`=""。执行失败时会删掉本次建的半成品“修_”图层。
-- 〔调整组〕`selection`（默认=沿用当前选区，无选区=全图）、`layer_id`（新层插在其上方）、`expand_px`=0、`feather_px`=0、`clip`=false（剪贴到下层）、`label`=""
+- 〔像素组〕`selection`（默认=沿用当前选区，无选区=整层）、`layer_id`（源图层，缺省=当前图层，必须是普通像素层，否则 `SOURCE_NOT_PIXEL_LAYER`——建过调整层后当前图层就是调整层，所以请显式传背景层等像素层的 id）、`source`="layer"（"merged"=先盖印全部可见图层再做）、`expand_px`=0、`feather_px`=0、`label`=""、`allow_duplicate`=false。执行失败时会删掉本次建的半成品“修_”图层。
+- 〔调整组〕`selection`（默认=沿用当前选区，无选区=全图）、`layer_id`（新层插在其上方）、`expand_px`=0、`feather_px`=0、`clip`=false（剪贴到下层）、`label`=""、`allow_duplicate`=false
 
 参数写法：`名`* = 必填；`名`=值 = 默认值。
 
@@ -40,6 +46,7 @@ python3 -X utf8 $HOME/Documents/Codex/ps-repair/scripts/psrun.py --poll <结果�
 
 | 名称 | 用途 | 参数 | 产出 | 验证状态 | 费用/限制 |
 |---|---|---|---|---|---|
+| ping | 只读探活：PS 能不能马上响应 | 无（用 `--ping` 调） | 无；返回 `version`、`documents`、`active`（当前文档 id/名/尺寸/模式/位深），psrun 另附 `disk`（系统盘剩余） | 已验证（2026-10-10 Windows，27.11.0，1.2 s） | 超时 = PS 没响应（弹窗、模态对话框、别的脚本、暂存盘满），先看 PS 窗口 |
 | inspect | 只读：打开的文档、图层树（id/名/类型/蒙版/边界）、Alpha 通道、选区、最近 8 条历史 | `doc_id`；`max_layers`=300 | 无（指定非当前文档时看完切回） | 已验证 | 无副作用 |
 | export_png | 导出当前合成为 PNG，验收/预览用 | `doc_id`；`path`*（.png，新路径，缺目录自动建） | PNG 文件 | 已验证；**与 MCP `document.export_png` 逐位一致**（见下） | 不嵌 ICC；PS 不压缩 PNG（3488×1480 约 15 MB）；打开后第一次导出可能近一分钟（实测 49 s，之后 2–4 s） |
 | duplicate_doc | 复制文档做试做 | `doc_id`；`name`="试做_<原名>"（缺前缀自动补）；`merge`=false | 新文档（成为当前），返回 id | 已验证 | `merge:true` 会把所有可见图层烧进像素 |
@@ -96,6 +103,8 @@ python3 -X utf8 $HOME/Documents/Codex/ps-repair/scripts/psrun.py --poll <结果�
 - ExtendScript 访问不存在的枚举成员会直接抛“无效枚举值”（如 `BlendMode.SATURATIONBLEND` 不存在，应为 `SATURATION`）。
 - 新建蒙版后 PS 把编辑目标切到蒙版，滤镜会作用在蒙版上；像素类配方在滤镜前显式选中 RGB 复合通道。
 - `autoCutout`（选择主体）必须带 `null`=文档引用；本机处理用 choice override `imageProcessingSelectSubjectPrefs=imageProcessingModeDevice`。
+- `suspendHistory(名, 代码串)` 的代码串在全局作用域求值，psrun 拼的脚本整段在闭包里，配方函数要经 `$.global` 转一手（`_lib.jsx` 的 `__runRecipe`）。
+- Windows：注册表 `Photoshop.Application` 指向 Beta 28.0，正式版 27.11 运行时登记的 CLSID 不同，`New-Object -ComObject` 会拉起 Beta（K8）；驱动改为只从运行对象表取目标实例。
 
 ## scripts/compare.py（验收用，ffmpeg 封装）
 

@@ -2,7 +2,8 @@
 //
 // 配方写法：定义 function run(args) { ... return {数据}; }，出错直接 throw。
 // 运行期全局（psrun.py 注入）：__ARGS__ 参数对象、__RESULT_PATH__ 结果文件、__RECIPE__ 配方名。
-// ExtendScript 只支持 ES3：不要用 let/const/箭头函数/Array.indexOf/JSON/String.trim。
+// ExtendScript 只支持 ES3：不要用 let/const/箭头函数/Array.indexOf/JSON/String.trim。psrun.py --check 会扫其中能静态认出的写法；
+// 数组 indexOf 和字符串 indexOf 分不开，扫不到，自己留意。
 // 本地化：中文界面下图层、历史记录默认名都是中文，一律用 stringID/charID，不匹配本地化名字。
 
 var FIX_PREFIX = '修_';            // “修_”：本工具产出的图层前缀
@@ -125,6 +126,13 @@ function layerInfo(l) {
   return o;
 }
 function fixName(recipe, label) { return FIX_PREFIX + recipe + (label ? '_' + label : ''); }
+// 防重跑叠层：同名「修_」图层已存在就拒绝（超时后重跑、忘了换 label 都会撞上）；确要再叠一层传 allow_duplicate:true。
+function assertFreeName(doc, name, args) {
+  if (opt(args, 'allow_duplicate', false)) return;
+  var hit = walkLayers(doc, function (l) { return l.name == name; });
+  if (hit) fail('LAYER_EXISTS', '已有同名图层「' + name + '」(id=' + hit.id + ')，上一次可能已经生效（超时也可能）；先 inspect 核对。'
+    + '另修一处请换 label，确要再叠一层传 allow_duplicate:true');
+}
 // 保护用户原有图层：只允许改本工具产出的“修_”图层，除非显式 allow_any_layer。
 function assertOwnLayer(layer, args) {
   if (layer.name.indexOf(FIX_PREFIX) != 0 && !opt(args, 'allow_any_layer', false))
@@ -377,19 +385,66 @@ function __writeResult(s) {
   if (dst.exists) dst.remove();
   part.rename(dst.name);
 }
+// 产出「修_<配方>_<label>」新图层的配方：运行前查重名（LAYER_EXISTS），在改动任何东西之前拦下。
+var MAKES_FIX_LAYER = ['content_aware_fill', 'fill_layer_solid', 'fill_layer_gradient', 'adj_curves', 'adj_levels',
+  'adj_color_balance', 'adj_hue_sat', 'adj_brightness_contrast', 'adj_selective_color', 'adj_photo_filter',
+  'filter_smart_blur', 'filter_surface_blur', 'filter_gaussian_blur', 'filter_add_noise', 'filter_high_pass',
+  'filter_lens_blur', 'camera_raw', 'place_image', 'generative_fill'];
+// 整条配方合成一步历史记录（用户在 PS 里按一次 Ctrl+Z 撤掉整处修复）：上面这些加下面这几个。
+// 不包：建/关文档、导出、只读、--jsx，以及 generative_fill（云端长操作放进 suspendHistory 没实测过）。
+var ONE_UNDO_EXTRA = ['mask_from_selection', 'mask_set', 'layer_ops', 'select_modify'];
+function __oneUndo() {
+  return (__RECIPE__ != 'generative_fill' && inList(__RECIPE__, MAKES_FIX_LAYER)) || inList(__RECIPE__, ONE_UNDO_EXTRA);
+}
+function __resolveDoc(args) {
+  try {
+    if (!app.documents.length) return null;
+    if (args.doc_id !== undefined && args.doc_id !== null) return findDoc(args.doc_id);
+    return app.activeDocument;
+  } catch (e) { return null; }
+}
+// suspendHistory 的第二个参数在全局作用域里求值，配方函数在 psrun 拼的闭包里，所以经 $.global 转一手。
+function __runRecipe(args, res) {
+  var doc = __resolveDoc(args);  // 找不到文档就照常跑，由 run() 报 NO_DOCUMENT / DOC_NOT_FOUND
+  var label = opt(args, 'label', '');
+  if (doc && inList(__RECIPE__, MAKES_FIX_LAYER)) assertFreeName(doc, fixName(__RECIPE__, label), args);
+  if (!doc || !__oneUndo()) return run(args);
+  if (app.activeDocument.id != doc.id) app.activeDocument = doc;
+  var box = { started: false, data: undefined, err: null };
+  $.global.__psrepairStep = function () {
+    box.started = true;
+    try { box.data = run(args); } catch (e) { box.err = e; }
+  };
+  try {
+    doc.suspendHistory(fixName(__RECIPE__, label), '$.global.__psrepairStep()');
+  } catch (eSus) {
+    if (!box.started) {  // 配方还没开始，按普通方式跑，不算失败
+      res.warnings.push('ONE_UNDO_SKIPPED: suspendHistory 不可用（' + eSus + '），本次历史记录会有多步');
+      return run(args);
+    }
+    res.warnings.push('ONE_UNDO_ERROR: 配方已执行，suspendHistory 收尾报错（' + eSus + '）');
+  } finally {
+    try { delete $.global.__psrepairStep; } catch (eDel) {}
+  }
+  if (!box.started) fail('INTERNAL', 'suspendHistory 没有执行配方');
+  if (box.err) throw box.err;
+  return box.data;
+}
 function __main() {
   var t0 = new Date().getTime();
-  var res = { ok: false, recipe: __RECIPE__, data: null, error: null, elapsed_ms: 0, history: [] };
+  var res = { ok: false, recipe: __RECIPE__, data: null, error: null, elapsed_ms: 0, history: [], warnings: [] };
   var oldUnits = null, oldDialogs = null;
   try {
     oldUnits = app.preferences.rulerUnits; oldDialogs = app.displayDialogs;
     app.preferences.rulerUnits = Units.PIXELS;
     app.displayDialogs = DialogModes.NO;
-    var data = run(__ARGS__ || {});
+    var data = __runRecipe(__ARGS__ || {}, res);
     res.data = (data === undefined) ? {} : data;
     res.ok = true;
   } catch (e) {
     res.error = String(e) + (e && e.line ? ' @line ' + e.line : '');
+    // PS 原生错误号（如 -25010 暂存盘满）比本地化的错误文字可靠；本工具 fail() 的报错带 CODE，不取号
+    if (e && typeof e.number == 'number' && !/^[A-Z][A-Z0-9_]{2,}: /.test(String(e.message))) res.error_number = e.number;
   }
   try { if (oldUnits !== null) app.preferences.rulerUnits = oldUnits; } catch (e2) {}
   try { if (oldDialogs !== null) app.displayDialogs = oldDialogs; } catch (e3) {}

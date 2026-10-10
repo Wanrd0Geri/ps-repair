@@ -23,7 +23,7 @@ description: 在本机 Photoshop 里修 AI 生成图的瑕疵，全程只加图�
 
 ## 流程
 
-**0 连接与文档检查。** 有 Higgsfield MCP：`ps_status`，再用 `ps_do` 跑 `document.list`、`layer.list`，记下文档 ID、尺寸、图层；没有就 `python3 -X utf8 $HOME/Documents/Codex/ps-repair/scripts/psrun.py inspect`，看图导出用 `export_png` 配方。确认用户没在操作 PS、没有弹窗，问清产出落点。配方只在 8 位 RGB 文档上测过（sRGB 的，和没嵌配置文件、`inspect` 里 profile 为 null 的）；16 位、CMYK、Lab 或别的配置文件先在副本上试。
+**0 连接与文档检查。** 有 Higgsfield MCP：`ps_status`，再用 `ps_do` 跑 `document.list`、`layer.list`，记下文档 ID、尺寸、图层；没有就先 `python3 -X utf8 $HOME/Documents/Codex/ps-repair/scripts/psrun.py --ping`（半分钟内回 PS 版本、打开的文档、系统盘剩余；超时多半是 PS 被弹窗卡住，请用户看一眼再继续），再跑 `psrun.py inspect`（`--ping` 只看不启动 PS；Windows 上 PS 没开时它报 `PS_NOT_RUNNING`，`inspect` 会自动启动），看图导出用 `export_png` 配方。报 `SCRATCH_DISK_LOW` 先告诉用户腾空间，再做大图和生成式填充。确认用户没在操作 PS、没有弹窗，问清产出落点。配方只在 8 位 RGB 文档上测过（sRGB 的，和没嵌配置文件、`inspect` 里 profile 为 null 的）；16 位、CMYK、Lab 或别的配置文件先在副本上试。
 
 **1 检视与缺陷表。** 按 [inspection-and-verification.md](references/inspection-and-verification.md) 切块、放大、定坐标，再列表：
 
@@ -40,7 +40,7 @@ description: 在本机 Photoshop 里修 AI 生成图的瑕疵，全程只加图�
 
 在 macOS 上它经 osascript 驱动 Photoshop，要求 PS 已打开；在 Windows 上经 PowerShell COM 驱动，PS 没开会自动启动 2026 正式版（Beta 只在显式 `--app "Adobe Photoshop (Beta)"` 时用）。Windows 的 PowerShell 5.1 会吃掉 `--args` 里的双引号：改成把 JSON 写进 UTF-8 文件，再传 `--args-file <文件>`（PowerShell 7.3+、Git Bash 直接用 `--args` 即可）。路径参数在两个系统上都写本机原生路径。
 
-参数名以 `recipes/CATALOG.md` 为准，不自己编；MCP 操作先用 `ps_catalog` 查参数。每条配方都显式传 `doc_id` 和 `layer_id`（像素类是源图层，一般是背景层；调整类是新层插在哪层上方）：建过调整层后当前图层就是调整层，像素类配方不传 `layer_id` 会报 `SOURCE_NOT_PIXEL_LAYER`。配方自带保护：`mask_from_selection`、`mask_set`、`layer_ops` 只改「修_」图层（否则报 `PROTECTED_LAYER`），`close_doc` 只关「试做_」文档（否则报 `PROTECTED_DOC`）；报了先核对目标，不顺手加 `allow_any_layer`、`force`。先在副本跑代表性一处，过了验收再上正式文档。调用超时不重跑同一条写操作，先查图层和历史记录。
+参数名以 `recipes/CATALOG.md` 为准，不自己编；MCP 操作先用 `ps_catalog` 查参数。每条配方都显式传 `doc_id` 和 `layer_id`（像素类是源图层，一般是背景层；调整类是新层插在哪层上方）：建过调整层后当前图层就是调整层，像素类配方不传 `layer_id` 会报 `SOURCE_NOT_PIXEL_LAYER`。配方自带保护：`mask_from_selection`、`mask_set`、`layer_ops` 只改「修_」图层（否则报 `PROTECTED_LAYER`），`close_doc` 只关「试做_」文档（否则报 `PROTECTED_DOC`），建层配方遇到同名「修_」层报 `LAYER_EXISTS`；报了先核对目标，不顺手加 `allow_any_layer`、`force`、`allow_duplicate`。错误按返回 JSON 的 `error_code` 判断，不按错误文字。图层类配方整条只占一步历史记录，用户在 PS 里按一次 Ctrl+Z 就撤掉整处修复（generative_fill 除外；warnings 里有 `ONE_UNDO_*` 时这次是多步）。先在副本跑代表性一处，过了验收再上正式文档。调用超时不重跑同一条写操作：先 `--ping`，通了再查图层和历史记录。
 
 **4 验收。** 按 [inspection-and-verification.md](references/inspection-and-verification.md)：同一路径导出前后 → 裁切并排 → 修改区外 PSNR=inf → 沿边界放大 → 暗部提亮检查。不过就回第 2 步；同一方法两次不过就换方法或路线，不靠加羽化、加模糊去盖。
 

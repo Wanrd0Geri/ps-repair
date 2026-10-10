@@ -49,3 +49,11 @@
 - **现象：** ExtendScript `saveAs` 存的 PNG 和原图比有约 44 dB 的差，MCP `document.export_png` 的导出逐位一致，一度以为是存盘方式的问题。
 - **原因：** 测试用 `duplicate(名, true)` 建副本，第二个参数是「只复制合并结果」，把当时开着的 45% 雾层烧进了像素；拿这份副本的导出和没有雾层的原图比，差的正是雾层。事后以带雾层的 MCP 导出为基准复核，两条路径的导出在修改框外都是 inf。
 - **结论：** `saveAs`（PNG，asCopy）和 MCP `document.export_png` 都逐位一致，可以互换。改前改后真正要一致的是文档状态：同一个文档、同一组可见图层、临时层已关；在副本上试时改前也从副本导出。建副本要保留图层用 `duplicate(名, false)`，`true` 会合并。
+
+## K8 Windows 上 COM 拉起了 Beta，正式版跟着退出（已改驱动）
+
+- **来源：** 2026-10-10 会话，Windows 11，Photoshop 2026 27.11.0 正在运行，另装了 Photoshop (Beta) 28.0（10-08 更新）。
+- **现象：** `psrun.py --ping` 报 `COM_UNAVAILABLE`（0x80080005 CO_E_SERVER_EXEC_FAILURE）。同一秒（11:52:44）Beta 目录下的 Adobe Crash Processor 启动，它的父进程是一个新起、随即退出的 Beta Photoshop.exe；正式版 PS 也在这一秒开始连续执行动作，20 秒后按正常流程退出。
+- **原因：** 注册表 `Photoshop.Application` → CLSID `{1271048C-…}` → LocalServer32 是 Beta 的 `Photoshop.exe /Automation`；正式版 27.11 运行时在运行对象表里登记的是 `{2682BB05-…}`。旧驱动用 `New-Object -ComObject Photoshop.Application`，找不到运行中的 `{1271048C-…}`，就按注册表拉起 Beta。正式版为什么退出没有直接证据，只知道和 Beta 启动在同一秒开始。
+- **修法：** 驱动不再新建 COM 对象，只在运行对象表里找已在运行、`Path` 等于目标安装目录的实例；找不到就报错，绝不启动别的进程。改后实测：`--ping` 1.2 秒连上正式版，没有出现 Beta 进程。
+- **通则：** Adobe Crash Processor 每次 PS 启动都会跟着起，看到它不等于崩溃；看它在哪个安装目录、父进程是谁，就知道是哪个 PS 被启动了。

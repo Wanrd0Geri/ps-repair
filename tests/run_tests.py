@@ -2,10 +2,11 @@
 # -*- coding: utf-8 -*-
 """run_tests.py —— macOS（osascript）与 Windows（COM）通用：在 Photoshop 里新建 800×600 合成文档，依次跑配方并断言，最后关闭不保存。
 
-断言：结果 ok、产出图层（“修_”前缀）、蒙版存在、修改区外像素不变（导出前后 PSNR=inf）、修改区内确有变化。
+断言：结果 ok、产出图层（“修_”前缀）、蒙版存在、修改区外像素不变（导出前后 PSNR=inf）、修改区内确有变化；
+另测探活、同名图层拒绝（LAYER_EXISTS）、整条配方只占一步历史记录（撤一步整层消失）。
 不跑 generative_fill（扣积分），只对它做语法检查。
 用法：python3 -X utf8 tests/run_tests.py [--keep] [--skip-tier2] [--skip-timeout] [--syntax-only]
-  --syntax-only 只跑配方语法检查和 psrun 用法报错两项，不碰 PS（PS 关着也能跑；没有 node 时语法检查记为跳过）。
+  --syntax-only 只跑配方语法检查、ES3 写法拦截和 psrun 用法报错三项，不碰 PS（PS 关着也能跑；没有 node 时语法检查记为跳过）。
 退出码：有 FAIL 时为 1。
 """
 import argparse
@@ -27,11 +28,29 @@ import compare  # noqa: E402
 
 W, H = 800, 600
 PREFIX = "修_"
+FIELDS = {"ok", "recipe", "data", "error", "error_code", "error_number", "elapsed_ms", "history", "warnings"}
+
+# 历史记录探针：条数、最后一条名字；undo_check 时退一步看图层在不在，再前进一步复原。
+PROBE_HISTORY = r"""function run(args) {
+  var doc = getDoc(args);
+  var hs = doc.historyStates, n = hs.length, lid = args.layer_id;
+  function has() { return (lid === undefined || lid === null) ? null : walkLayers(doc, function (l) { return l.id == lid; }) !== null; }
+  var out = { count: n, last: hs[n - 1].name, before: has() };
+  if (args.undo_check) {
+    doc.activeHistoryState = hs[n - 2];
+    out.after_undo = has();
+    doc.activeHistoryState = doc.historyStates[n - 1];
+    out.after_redo = has();
+  }
+  return out;
+}
+"""
 
 
 def ps(recipe=None, args=None, jsx=None, timeout=300, extra=None):
-    cmd = [sys.executable, PSRUN] + ([recipe] if recipe else ["--jsx", jsx])
-    cmd += ["--args", json.dumps(args or {}, ensure_ascii=False), "--timeout", str(timeout)] + (extra or [])
+    cmd = [sys.executable, PSRUN] + ([recipe] if recipe else (["--jsx", jsx] if jsx else []))
+    cmd += ["--args", json.dumps(args or {}, ensure_ascii=False)]
+    cmd += (["--timeout", str(timeout)] if timeout else []) + (extra or [])
     p = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
     try:
         res = json.loads(p.stdout.strip().splitlines()[-1])
@@ -80,7 +99,19 @@ class Suite:
     def expect_error(self, recipe, args, code):
         r = self.call(recipe, args)
         check(not r.get("ok") and code in (r.get("error") or ""), "%s 应报 %s，实际：%s" % (recipe, code, r.get("error") or "ok"))
+        check(r.get("error_code") == code, "error_code 应为 %s，实际 %s" % (code, r.get("error_code")))
         check(r["_rc"] != 0, "失败时退出码应非 0")
+
+    def probe(self, args):
+        path = os.path.join(self.tmp, "probe_history.jsx")
+        if not os.path.exists(path):
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(PROBE_HISTORY)
+        a = dict(args)
+        a.setdefault("doc_id", self.doc)
+        r = ps(jsx=path, args=a)
+        check(r.get("ok"), "历史探针失败：%s" % r.get("error"))
+        return r["data"]
 
     def export(self):
         self.n += 1
@@ -130,6 +161,8 @@ class Suite:
     def run(self, skip_tier2, skip_timeout, syntax_only=False):
         print("临时目录：%s" % self.tmp)
         self.case("syntax_check(all)", "-", self.t_syntax)
+        self.case("es3_lint", "-", self.t_es3)
+        self.case("psrun_helpers", "-", self.t_helpers)
         self.case("psrun_usage_errors", "-", self.t_usage)
         if syntax_only:
             return
@@ -158,6 +191,7 @@ class Suite:
 
     def tier1(self):
         c = self.case
+        c("ping", 1, self.t_ping)
         c("inspect", 1, self.t_inspect)
         c("export_png", 1, self.t_export)
         c("select_rect", 1, lambda: self.sel("select_rect", {"rect": [350, 150, 390, 190]}, [350, 150, 390, 190], 0))
@@ -171,6 +205,8 @@ class Suite:
         c("content_aware_fill", 1, lambda: self.pixel_case("content_aware_fill", {
             "selection": {"rect": [346, 146, 394, 194]}, "expand_px": 2, "label": "白框", "layer_id": self.bg},
             [346, 146, 394, 194], margin=3, key="caf"))
+        c("layer_exists_guard", 1, self.t_layer_exists)
+        c("one_undo", 1, self.t_one_undo)
         c("fill_layer_solid", 1, lambda: self.pixel_case("fill_layer_solid", {
             "rgb": [20, 30, 90], "selection": {"rect": [600, 40, 760, 120]}, "blend": "multiply", "opacity": 50,
             "feather_px": 3, "label": "压暗"}, [600, 40, 760, 120], margin=12, key="solid"))
@@ -183,7 +219,8 @@ class Suite:
         c("adj_hue_sat", 1, lambda: self.pixel_case("adj_hue_sat", {
             "hue": 30, "saturation": -30, "selection": {"rect": [420, 20, 520, 120]}}, [420, 20, 520, 120]))
         c("adj_hue_sat(colorize)", 1, lambda: self.pixel_case("adj_hue_sat", {
-            "colorize": True, "hue": 200, "saturation": 40, "selection": {"rect": [310, 450, 430, 590]}}, [310, 450, 430, 590]))
+            "colorize": True, "hue": 200, "saturation": 40, "selection": {"rect": [310, 450, 430, 590]}, "label": "上色"},
+            [310, 450, 430, 590]))
         c("adj_brightness_contrast", 1, lambda: self.pixel_case("adj_brightness_contrast", {
             "brightness": 40, "contrast": 20, "selection": {"rect": [20, 130, 120, 230]}}, [20, 130, 120, 230]))
         c("filter_smart_blur", 1, lambda: self.pixel_case("filter_smart_blur", {
@@ -236,13 +273,103 @@ class Suite:
         check(not bad, "; ".join(bad))
         return "%d 个配方语法通过（含 generative_fill，未运行）" % len(names)
 
+    def t_es3(self):
+        bad = os.path.join(self.tmp, "es6_bad.jsx")
+        with open(bad, "w", encoding="utf-8") as f:
+            f.write("function run(args) { var wait = 1; var o = { wait }; var f = (x) => x; return o; }\n")
+        r = ps(jsx=bad, extra=["--check"])
+        check(not r["ok"] and r.get("error_code") == "ES3", "ES6 写法应被 --check 拦下：%s" % r.get("error"))
+        check("对象简写" in r["error"] and "箭头函数" in r["error"], "应同时指出对象简写和箭头函数：%s" % r["error"])
+        return "对象简写、箭头函数被拦下（node --check 本身放行）"
+
+    def t_helpers(self):
+        import psrun  # noqa: E402  纯函数，不碰 PS
+        cases = {
+            "错误: LAYER_EXISTS: 已有同名图层": "LAYER_EXISTS",
+            "Error: NO_SELECTION: x": "NO_SELECTION",
+            "COM_ERROR: COM_MISMATCH: only other": "COM_MISMATCH",
+            "COM_ERROR: Retrieving the COM class factory ... URL: http://x JSON: y": "COM_ERROR",
+            "TIMEOUT: 900 秒内没有结果": "TIMEOUT",
+            "Error: General Photoshop error occurred. JPEG: x": None,
+        }
+        bad = ["%r→%r" % (k, psrun.error_code(k)) for k, v in cases.items() if psrun.error_code(k) != v]
+        check(not bad, "error_code 解析不对：%s" % bad)
+        f = psrun.finalize({"ok": False, "error": "错误: FILE_NOT_FOUND: 找不到图片 暂存盘测试.png"}, None, False)
+        check(f.get("error_code") != "SCRATCH_DISK_FULL", "文件名里的「暂存盘」不应被判成暂存盘满")
+        f = psrun.finalize({"ok": False, "error": "Error: 暂存盘已满。", "error_number": -25010}, None, False)
+        check(f.get("error_code") == "SCRATCH_DISK_FULL", "错误号 -25010 应判成暂存盘满")
+        f = psrun.finalize({"ok": False, "error_code": "FILE_NOT_FOUND", "error": "missing image scratch disk test.png"}, None, False)
+        check(f.get("error_code") == "FILE_NOT_FOUND", "已有结构化错误码不应被改写")
+        lint = {
+            'var n = "4" / 2; const bad = 1;': True,       # 字符串后的 / 是除号，后面的 const 要扫到
+            "var x = a++ / 2; const bad = 1;": True,       # a++ 后的 / 也是除号
+            "var y = b-- / 2; const bad = 1;": True,
+            "throw /=>/;": False,                          # throw 后面是正则
+            "var z = a++" + " " * 40 + "/ 2; const bad = 1;": True,   # ++ 和 / 之间隔很远
+            "var w = a-- /* 很长的注释 很长的注释 很长的注释 */ / 2; const bad = 1;": True,
+            "var v = a++ / /=>/.source.length;": False,   # 除号右边是正则
+            "var u = /a/ / 2;": False,                     # 正则后面的 / 是除号
+            "var r = a / b / c;": False,
+            "var re = /a=>b`/g; var s = 'x => y';": False,  # 正则和字符串里的内容不算
+            "var o = { a: 1, b };": True,
+        }
+        bad = ["%r" % k for k, v in lint.items() if bool(psrun.es3_lint(k, "t.jsx")) != v]
+        check(not bad, "ES3 扫描边界用例不对：%s" % bad)
+        orig = psrun._win_running_paths, psrun._mac_ps
+        psrun._win_running_paths, psrun._mac_ps = (lambda: None), (lambda: None)
+        try:
+            check(psrun.app_running("x") is None, "进程列表查不到时应返回「不知道」，不能当成没在跑")
+        finally:
+            psrun._win_running_paths, psrun._mac_ps = orig
+        t0 = time.time()
+        psrun.poll_result(os.path.join(self.tmp, "no_such_result.json"), t0 + 0.5)
+        check(time.time() - t0 < 1.2, "轮询不应睡过截止时间：%.2f 秒" % (time.time() - t0))
+        return "error_code %d 例、错误归类 3 例、ES3 边界 %d 例、查进程失败、轮询截止" % (len(cases), len(lint))
+
     def t_usage(self):
         r = ps("no_such_recipe", {})
-        check(not r["ok"] and r["_rc"] == 2 and "USAGE" in r["error"], "未知配方应返回 USAGE 且退出码 2")
+        check(set(r) - {"_rc"} == FIELDS, "输出字段应为 %s，实际 %s" % (sorted(FIELDS), sorted(set(r) - {"_rc"})))
+        check(not r["ok"] and r["_rc"] == 2 and "USAGE" in r["error"] and r["error_code"] == "USAGE", "未知配方应返回 USAGE 且退出码 2")
         p = subprocess.run([sys.executable, PSRUN, "inspect", "--args", "{bad"], capture_output=True, text=True,
                            encoding="utf-8", errors="replace")
         check(p.returncode == 2 and json.loads(p.stdout)["ok"] is False, "坏 JSON 应返回退出码 2")
         return "未知配方/坏参数 → ok=false，退出码 2"
+
+    def t_ping(self):
+        t0 = time.time()
+        r = ps(timeout=None, extra=["--ping"])
+        check(r.get("ok"), "ping 失败：%s" % r.get("error"))
+        d = r["data"]
+        check(d["documents"] >= 1 and d["active"] and d["active"]["id"] == self.doc, "ping 看到的当前文档不对：%s" % d.get("active"))
+        check(d["disk"] and d["disk"]["free_gb"] > 0, "ping 应附系统盘空间：%s" % d.get("disk"))
+        check(time.time() - t0 < 30, "ping 用了 %.1f 秒" % (time.time() - t0))
+        return "PS %s，%d 个文档，系统盘剩 %s GB，%.1f 秒" % (d["version"], d["documents"], d["disk"]["free_gb"], time.time() - t0)
+
+    def t_layer_exists(self):
+        h0 = self.probe({})
+        check(h0["last"] == "修_content_aware_fill_白框", "内容识别填充应只占一步历史，最后一条是「%s」" % h0["last"])
+        n0 = len(self.ok("inspect", {})["document"]["layers"])
+        self.expect_error("content_aware_fill", {"selection": {"rect": [346, 146, 394, 194]}, "label": "白框", "layer_id": self.bg},
+                          "LAYER_EXISTS")
+        doc = self.ok("inspect", {})["document"]
+        check(len(doc["layers"]) == n0, "撞名时不应建出新图层：%d → %d" % (n0, len(doc["layers"])))
+        check(doc["selection"] is None, "撞名应在改选区之前拦下，实际选区 %s" % doc["selection"])
+        h1 = self.probe({})
+        check(h1["count"] == h0["count"] and h1["last"] == h0["last"], "撞名不应留下历史记录：%s → %s" % (h0, h1))
+        return "同名「修_content_aware_fill_白框」被拒，图层、选区、历史都没动"
+
+    def t_one_undo(self):
+        h0 = self.probe({})
+        name = "修_adj_brightness_contrast_撤销测试"
+        d = self.ok("adj_brightness_contrast", {"brightness": -40, "selection": {"rect": [700, 500, 780, 580]}, "label": "撤销测试"})
+        h = self.probe({"layer_id": d["id"], "undo_check": True})
+        check(h["last"] == name, "最后一条历史记录应是「%s」，实际「%s」" % (name, h["last"]))
+        if h0["count"] < 45:  # 历史记录默认上限 50 条，满了以后条数不再增长
+            check(h["count"] == h0["count"] + 1, "整条配方应只加一步历史：%d → %d" % (h0["count"], h["count"]))
+        check(h["before"] and not h["after_undo"] and h["after_redo"], "撤一步应整层消失、前进一步回来：%s" % h)
+        self.ok("layer_ops", {"op": "delete", "layer_id": d["id"]})
+        self.last = None
+        return "一步历史「%s」，撤一步整层消失" % name
 
     def t_inspect(self):
         d = self.ok("inspect", {})
@@ -397,7 +524,7 @@ class Suite:
         after2 = self.export()
         out2 = compare.psnr_outside(after, after2, [[10, 500, 50, 530]])
         check(out2["identical_outside"], "带选区蒙版的放置在蒙版外有变化")
-        self.expect_error("place_image", {"path": "/nonexistent/x.png", "x": 0, "y": 0}, "FILE_NOT_FOUND")
+        self.expect_error("place_image", {"path": "/nonexistent/x.png", "x": 0, "y": 0, "label": "不存在"}, "FILE_NOT_FOUND")
         self.last = after2
         return "1:1 corners=%s；缩放 corners=%s" % (d["corners"], d2["corners"])
 
