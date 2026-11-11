@@ -60,7 +60,7 @@ python3 -X utf8 $HOME/Documents/Codex/ps-repair/scripts/psrun.py --poll <结果�
 | select_sky | 选择 > 天空 | `doc_id` | 选区；`found`、`bounds` | 已验证（真实夜景 0,0,3486,356，e2e 复跑 0,0,3487,357；合成图 0,0,800,293） | 本机模型；软边，树梢/屋檐交界易错 |
 | select_color_range | 色彩范围 | `doc_id`；`sample_rgb`（[r,g,b] 或多个）或 `preset`（highlights/midtones/shadows/reds/yellows/greens/cyans/blues/magentas/skin_tones）；`fuzziness`=40；`invert`=false；`within_selection`=false | 选区；`found`、`bounds`、Lab 范围 | 已验证（取样、多色、highlights、within_selection）；其余 preset 未逐个测 | RGB 由 PS 转 Lab；默认先取消选区 |
 | select_subject | 选择 > 主体 | `doc_id`；`sample_all_layers`=false；`processing`="device"（cloud 未验证）；`layer_id`=最底层 | 选区；`found`、`bounds` | 已验证（device） | 必须带 null=文档引用，否则“没有这种元素” |
-| content_aware_fill | 内容识别填充去小瑕疵 | `doc_id`；`selection`="current"（必须有）；`layer_id`；`source`="layer"；`grow_px`=0（填充前外扩）；`expand_px`=0；`feather_px`=0；`color_adaptation`=true；`label`="" | `修_content_aware_fill_<label>`（副本+蒙版）；返回 `fill_bounds` | 已验证 | 秒级；大结构会糊/重复，回即梦局部重绘 |
+| content_aware_fill | 内容识别填充去小瑕疵 | `doc_id`；`selection`="current"（必须有）；`layer_id`；`source`="layer"；`grow_px`=0（填充前外扩）；`expand_px`=0；`feather_px`=0；`color_adaptation`=true；`label`="" | `修_content_aware_fill_<label>`（副本+蒙版）；返回 `fill_bounds` | 已验证 | 秒级；大结构会糊/重复，回局部重绘 |
 | fill_layer_solid | 纯色填充层 | `rgb`*；`opacity`=100；`blend`="normal"；〔调整组〕 | `修_fill_layer_solid_<label>` | 已验证 | — |
 | adj_curves | 曲线调整层 | `points`=[[in,out],...]（复合）或 `channels`={rgb,red,green,blue}；缺 0/255 端点自动补；〔调整组〕 | `修_adj_curves_<label>`；返回曲线点 | 已验证（读回曲线点一致） | — |
 | adj_levels | 色阶调整层 | `input_black`=0；`input_white`=255；`gamma`=1.0；`output_black`=0；`output_white`=255；`channel`="rgb"；〔调整组〕 | `修_adj_levels_<label>` | 已验证（读回一致） | 抬 `output_black` 可做灰雾 |
