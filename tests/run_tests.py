@@ -6,7 +6,7 @@
 另测探活、同名图层拒绝（LAYER_EXISTS）、整条配方只占一步历史记录（撤一步整层消失）。
 不跑 generative_fill（扣积分），只对它做语法检查。
 用法：python3 -X utf8 tests/run_tests.py [--keep] [--skip-tier2] [--skip-timeout] [--syntax-only]
-  --syntax-only 只跑配方语法检查、ES3 写法拦截和 psrun 用法报错三项，不碰 PS（PS 关着也能跑；没有 node 时语法检查记为跳过）。
+  --syntax-only 只跑配方语法检查、ES3 写法拦截、psrun_helpers 和 psrun 用法报错四项，不碰 PS（PS 关着也能跑；没有 node 时语法检查记为跳过）。
 退出码：有 FAIL 时为 1。
 """
 import argparse
@@ -584,7 +584,7 @@ def main():
     ap.add_argument("--keep", action="store_true", help="保留导出的中间 PNG")
     ap.add_argument("--skip-tier2", action="store_true")
     ap.add_argument("--skip-timeout", action="store_true", help="跳过 14 秒的 -1712 轮询测试")
-    ap.add_argument("--syntax-only", action="store_true", help="只跑语法检查和用法报错两项，不碰 PS")
+    ap.add_argument("--syntax-only", action="store_true", help="只跑配方语法检查、ES3 写法拦截、psrun_helpers 和 psrun 用法报错四项，不碰 PS")
     ns = ap.parse_args()
     s = Suite(ns.keep)
     try:

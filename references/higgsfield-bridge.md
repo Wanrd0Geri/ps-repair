@@ -39,7 +39,7 @@
 ## 读 ps-deslop
 
 - 索引 `ps_get_skill(name:"ps-deslop")`；单份 `ps_get_skill(name:"ps-deslop", reference:"references/<名>.md")`。没有 MCP 时直接读本机 `~/.higgsfield/photoshop-mcp/node_modules/@higgsfield_org/photoshop-mcp/dist/skills/photoshop/ps-deslop/`。
-- 最有用的几份：`surface-analysis.md`（动手前的空间分析：透视、遮挡、光源、反射、远近）、`method-selection.md`（分流顺序）、`masks.md`（蒙版边界、覆盖检查、白线诊断）、`surface-completion.md`（材质毛病分五类）、`failure-atlas.md`（被否决的结果，只当反例）、`quality-contract.md`（各项独立验收）、`nature.md`（树、地形、水）、`seedream-integration.md`（外部生成补丁的对位和单蒙版合回，对应即梦局部重绘合回）、`finish.md`（景深与最终调色）。
+- 最有用的几份：`surface-analysis.md`（动手前的空间分析：透视、遮挡、光源、反射、远近）、`method-selection.md`（分流顺序）、`masks.md`（蒙版边界、覆盖检查、白线诊断）、`surface-completion.md`（材质毛病分五类）、`failure-atlas.md`（被否决的结果，只当反例）、`quality-contract.md`（各项独立验收）、`nature.md`（树、地形、水）、`seedream-integration.md`（外部生成补丁的对位和单蒙版合回，对应局部重绘合回）、`finish.md`（景深与最终调色）。
 - 它的完整流程默认带镜头模糊、径向模糊和全局调色，还指定了委派用的模型，这些不是本 skill 的默认。读它是为了方法和反例，范围仍以用户要求为准。
 
 ## 许可证

@@ -30,6 +30,7 @@ Windows 用目录联接：`cmd /c mklink /J "%USERPROFILE%\.claude\skills\ps-rep
 - Windows：无需装任何东西，用系统自带的 `powershell`（5.1 即可）走 COM；Photoshop 没开会自动启动。注册表里 `Photoshop.Application` 只指向最后安装的版本（常是 Beta），按它新建对象会拉起 Beta（K8），所以脚本只在运行对象表里找正在运行、安装目录对得上的目标版本；找不到报 `COM_UNAVAILABLE`，只有别的版本在跑报 `COM_MISMATCH`。
 - macOS 自动化权限：系统设置 → 隐私与安全性 → 自动化，允许运行 Claude 或 Codex 的应用控制 Photoshop；第一次运行会弹窗询问。
 - python3（Windows 上可用 `py -3`）和 ffmpeg：切图、拼图、PSNR 都走 ffmpeg，不需要 PIL 或 ImageMagick。ffmpeg 不在 PATH 上时设环境变量 `FFMPEG_DIR` 指向它所在目录。
+- node（可选）：安装自检和 --check 的语法检查要它，没装时语法检查跳过。
 - 可选：Higgsfield PS MCP（`higgsfield-use-photoshop`），有它时看图和导出优先走它。
 - 生成式填充要 Adobe 账号里有生成积分。
 
